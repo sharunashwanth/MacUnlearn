@@ -21,59 +21,67 @@ class SimNPO_SAM(SimNPO):
     def training_step(self, model, inputs, num_items_in_batch=None):
         model.train()
         inputs = self._prepare_inputs(inputs)
-
         param_list = [p for p in model.parameters() if p.requires_grad]
-
-        # 1. Compute perturbation direction using autograd.grad
-        forget_loss_1 = self._compute_forget_loss(model, inputs)
-
-        grads = torch.autograd.grad(
-            forget_loss_1,
-            param_list,
-            allow_unused=True
-        )
-
-        # 2. Calculate perturbation scale and perturb weights in-place
-        grad_norm_sq = torch.tensor(0.0, device=self.args.device)
-        for g in grads:
-            if g is not None:
-                grad_norm_sq += g.detach().norm(2).pow(2)
-        grad_norm = grad_norm_sq.sqrt()
-        scale = self.sam_rho / (grad_norm + 1e-12)
-
-        # Build eps, perturb weights, then move eps to CPU to free GPU VRAM
-        eps_cpu = []
-        with torch.no_grad():
-            for p, g in zip(param_list, grads):
-                if g is not None:
-                    eps = g.detach().mul_(scale)
-                    p.data.add_(eps)
-                    eps_cpu.append(eps.to("cpu"))
-                    del eps
-                else:
-                    eps_cpu.append(None)
-        del grads
-        torch.cuda.empty_cache()
 
         accum_scale = 1.0 / self.args.gradient_accumulation_steps if self.args.gradient_accumulation_steps > 1 else 1.0
 
-        # 3. Backward pass on forget set at perturbed point
+        # == Phase 1: Compute perturbation direction ==
+        # Stash any accumulated gradients (from previous micro-batches) to CPU
+        stashed = []
+        for p in param_list:
+            if p.grad is not None:
+                stashed.append(p.grad.data.to("cpu"))
+                p.grad = None
+            else:
+                stashed.append(None)
+        torch.cuda.empty_cache()
+
+        # Standard backward to get perturbation gradients into p.grad
+        forget_loss_1 = self._compute_forget_loss(model, inputs)
+        self.accelerator.backward(forget_loss_1)
+
+        # Read p.grad to compute eps, perturb weights, move eps to CPU
+        grad_norm_sq = 0.0
+        for p in param_list:
+            if p.grad is not None:
+                grad_norm_sq += p.grad.data.norm(2).pow(2).item()
+        scale = self.sam_rho / (grad_norm_sq ** 0.5 + 1e-12)
+
+        eps_cpu = []
+        with torch.no_grad():
+            for p in param_list:
+                if p.grad is not None:
+                    eps = p.grad.data.mul_(scale)
+                    p.data.add_(eps)
+                    eps_cpu.append(eps.to("cpu"))
+                else:
+                    eps_cpu.append(None)
+
+        # Restore stashed accumulated gradients (clears perturbation grads)
+        for p, sg in zip(param_list, stashed):
+            if sg is not None:
+                p.grad = sg.to(p.data.device)
+            else:
+                p.grad = None
+        del stashed
+        torch.cuda.empty_cache()
+
+        # == Phase 2: Backward at perturbed point ==
         forget_loss_2 = self._compute_forget_loss(model, inputs)
         self.accelerator.backward(forget_loss_2 * self.gamma * accum_scale)
 
-        # 4. Restore weights using CPU-stored eps (one param at a time)
+        # Restore original weights
         with torch.no_grad():
             for p, eps_c in zip(param_list, eps_cpu):
                 if eps_c is not None:
                     p.data.sub_(eps_c.to(p.data.device))
         del eps_cpu
 
-        # 5. Backward pass on retain set at original weights
+        # == Phase 3: Retain backward at original weights ==
         retain_loss = self._compute_retain_loss(model, inputs)
         self.accelerator.backward(retain_loss * self.alpha * accum_scale)
 
-        total_loss = (forget_loss_2 + self.alpha * retain_loss).detach()
-        return total_loss * accum_scale
+        return (forget_loss_2 + self.alpha * retain_loss).detach() * accum_scale
 
     def _compute_forget_loss(self, model, inputs):
         forget_inputs = inputs["forget"]
