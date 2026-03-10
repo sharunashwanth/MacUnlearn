@@ -103,8 +103,10 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         "trainer.args.bf16=false",
         "trainer.args.bf16_full_eval=false",
         "+trainer.args.fp16_full_eval=true",
-        "trainer.args.optim=adamw_bnb_8bit",
+        "trainer.args.optim=adafactor",
         "+model.model_args.low_cpu_mem_usage=true",
+        "+trainer.args.max_grad_norm=1.0",
+        "+trainer.args.learning_rate=1e-5",
     ] + extra_args
 
     # Resume from checkpoint if available
