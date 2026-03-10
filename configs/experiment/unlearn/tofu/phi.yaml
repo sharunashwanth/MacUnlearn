@@ -50,7 +50,7 @@ trainer:
     logging_steps: 1
     save_only_model: True
     dataloader_num_workers: 0
-    evaluation_strategy: "no"
+    eval_strategy: "no"
     eval_on_start: false
 
 task_name: ???

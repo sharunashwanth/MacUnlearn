@@ -97,7 +97,7 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         f"trainer.args.gradient_accumulation_steps={args.grad_accum}",
         "trainer.args.ddp_find_unused_parameters=true",
         "trainer.args.gradient_checkpointing=true",
-        "trainer.args.evaluation_strategy=no",
+        "trainer.args.eval_strategy=no",
         "trainer.args.eval_on_start=false",
     ] + extra_args
 
@@ -108,24 +108,19 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         cmd.append(f"+trainer.args.resume_from_checkpoint={checkpoint}")
 
     # Find pre-computed retain logs if we don't have our own yet
-    # Common names from setup_data.py --eval_logs
-    possible_names = [
-        f"tofu_ft_phi-1.5_{splits['retain']}.json",
-        f"tofu_{MODEL}_{splits['retain']}/TOFU_EVAL.json",
-        f"tofu_phi-1.5_{splits['retain']}.json",
-    ]
-    
     retain_logs = None
-    for name in possible_names:
-        if (EVAL_DIR / name).exists():
-            retain_logs = EVAL_DIR / name
-            break
+    if EVAL_DIR.exists():
+        # Look for any json in saves/eval that contains our split name (e.g., retain95)
+        for f in EVAL_DIR.rglob("*.json"):
+            if splits['retain'] in f.name:
+                retain_logs = f
+                break
     
     if retain_logs:
         print(f"  Using pre-computed retain logs: {retain_logs}")
         cmd.append(f"retain_logs_path={retain_logs}")
     else:
-        print(f"  [WARN] No pre-computed retain logs found in {EVAL_DIR}!")
+        print(f"  [WARN] No pre-computed retain logs found in {EVAL_DIR} for {splits['retain']}")
 
     result = subprocess.run(cmd, cwd=str(ROOT))
     if result.returncode != 0:
