@@ -29,61 +29,42 @@ class NPO_SAM(NPO):
         inputs = self._prepare_inputs(inputs)
         param_list = [p for p in model.parameters() if p.requires_grad]
 
-        accum_scale = 1.0 / self.args.gradient_accumulation_steps if self.args.gradient_accumulation_steps > 1 else 1.0
-
-        # == Phase 1: Compute perturbation direction ==
-        # Stash any accumulated gradients (from previous micro-batches) to CPU
-        stashed = []
-        for p in param_list:
-            if p.grad is not None:
-                stashed.append(p.grad.data.to("cpu"))
-                p.grad = None
-            else:
-                stashed.append(None)
-        torch.cuda.empty_cache()
-
-        # Standard backward to get perturbation gradients into p.grad
+        # 1. Compute perturbation direction via autograd.grad (doesn't touch p.grad)
         forget_loss_1 = self._compute_forget_loss(model, inputs)
-        self.accelerator.backward(forget_loss_1)
+        grads = torch.autograd.grad(forget_loss_1, param_list, allow_unused=True)
 
-        # Read p.grad to compute eps, perturb weights, move eps to CPU
-        grad_norm_sq = 0.0
-        for p in param_list:
-            if p.grad is not None:
-                grad_norm_sq += p.grad.data.norm(2).pow(2).item()
+        # 2. Compute perturbation scale
+        grad_norm_sq = sum(
+            g.detach().norm(2).pow(2).item() for g in grads if g is not None
+        )
         scale = self.sam_rho / (grad_norm_sq ** 0.5 + 1e-12)
 
-        eps_cpu = []
+        # 3. Perturb weights, store eps for restoration
+        eps_list = []
         with torch.no_grad():
-            for p in param_list:
-                if p.grad is not None:
-                    eps = p.grad.data.mul_(scale)
+            for p, g in zip(param_list, grads):
+                if g is not None:
+                    eps = g.detach().mul_(scale)
                     p.data.add_(eps)
-                    eps_cpu.append(eps.to("cpu"))
+                    eps_list.append(eps)
                 else:
-                    eps_cpu.append(None)
+                    eps_list.append(None)
+        del grads
 
-        # Restore stashed accumulated gradients (clears perturbation grads)
-        for p, sg in zip(param_list, stashed):
-            if sg is not None:
-                p.grad = sg.to(p.data.device)
-            else:
-                p.grad = None
-        del stashed
-        torch.cuda.empty_cache()
+        accum_scale = 1.0 / self.args.gradient_accumulation_steps if self.args.gradient_accumulation_steps > 1 else 1.0
 
-        # == Phase 2: Backward at perturbed point ==
+        # 4. Backward at perturbed point
         forget_loss_2 = self._compute_forget_loss(model, inputs)
         self.accelerator.backward(forget_loss_2 * self.gamma * accum_scale)
 
-        # Restore original weights
+        # 5. Restore original weights
         with torch.no_grad():
-            for p, eps_c in zip(param_list, eps_cpu):
-                if eps_c is not None:
-                    p.data.sub_(eps_c.to(p.data.device))
-        del eps_cpu
+            for p, eps in zip(param_list, eps_list):
+                if eps is not None:
+                    p.data.sub_(eps)
+        del eps_list
 
-        # == Phase 3: Retain backward at original weights ==
+        # 6. Retain backward at original weights
         retain_loss = self._compute_retain_loss(model, inputs)
         self.accelerator.backward(retain_loss * self.alpha * accum_scale)
 
