@@ -50,8 +50,8 @@ export HF_HOME="${GDRIVE_BASE}/hf_cache"
 # --- 3. Install dependencies & Fix Torchvision ---
 echo "[3/5] Installing dependencies..."
 cd "${REPO_DIR}"
-# Install everything except torch first to avoid conflicts, then fix torch/torchvision
-pip install -q -e . 
+# Install everything including lm-eval, then fix torch/torchvision
+pip install -q -e ".[lm-eval]" 
 # Fix the "torchvision::nms" error by ensuring compatible versions
 pip install -q --no-deps torchvision==0.19.1 torch==2.4.1
 
