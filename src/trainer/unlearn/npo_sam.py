@@ -24,7 +24,7 @@ class NPO_SAM(NPO):
         super().__init__(*args, **kwargs)
         self.sam_rho = sam_rho
 
-    def training_step(self, model, inputs):
+    def training_step(self, model, inputs, num_items_in_batch=None):
         model.train()
         inputs = self._prepare_inputs(inputs)
 
