@@ -30,7 +30,7 @@ class NPO_SAM(NPO):
 
         param_list = [p for p in model.parameters() if p.requires_grad]
 
-        # Save accumulated grads for gradient accumulation
+        # Save existing accumulated gradients (from prev steps) so we don't mix them with forget_loss_1
         accum_grads = [p.grad for p in param_list]
         for p in param_list:
             p.grad = None
@@ -39,7 +39,7 @@ class NPO_SAM(NPO):
         forget_loss_1 = self._compute_forget_loss(model, inputs)
         self.accelerator.backward(forget_loss_1)
 
-        # Step 2: Perturb weights (Store eps directly in eps_list reusing p.grad memory)
+        # Step 2: Perturb weights (Store eps directly mapping to the grad memory to save space)
         eps_list = []
         with torch.no_grad():
             grad_tensors = [p.grad for p in param_list if p.grad is not None]
@@ -50,20 +50,26 @@ class NPO_SAM(NPO):
             
             scale = self.sam_rho / (grad_norm + 1e-12)
 
-            for p in param_list:
+            for p, acc in zip(param_list, accum_grads):
                 if p.grad is not None:
                     eps = p.grad.detach().mul_(scale)
                     p.data.add_(eps)
                     eps_list.append(eps)
                 else:
                     eps_list.append(None)
-                p.grad = None
+                
+                # Restore the true accumulated gradients so upcoming backwards add to them
+                p.grad = acc
+
+        # Accumulation scaling factor (HF Trainer bypass fix)
+        accum_scale = 1.0 / self.args.gradient_accumulation_steps if self.args.gradient_accumulation_steps > 1 else 1.0
 
         # Step 3: Forward-backward on forget set at perturbed point
+        # Gradients will safely accumulate directly into p.grad!
         forget_loss_2 = self._compute_forget_loss(model, inputs)
-        self.accelerator.backward(forget_loss_2 * self.gamma)
+        self.accelerator.backward(forget_loss_2 * self.gamma * accum_scale)
 
-        # Step 4: Restore weights and free eps memory immediately
+        # Step 4: Restore weights and FREE eps memory immediately!
         with torch.no_grad():
             for p, eps in zip(param_list, eps_list):
                 if eps is not None:
@@ -72,20 +78,11 @@ class NPO_SAM(NPO):
 
         # Step 5: Forward-backward on retain set at original weights
         retain_loss = self._compute_retain_loss(model, inputs)
-        self.accelerator.backward(retain_loss * self.alpha)
-
-        # Step 6: Add back accumulated gradients
-        with torch.no_grad():
-            for p, acc in zip(param_list, accum_grads):
-                if acc is not None:
-                    if p.grad is not None:
-                        p.grad.add_(acc)
-                    else:
-                        p.grad = acc
+        self.accelerator.backward(retain_loss * self.alpha * accum_scale)
 
         # Let HF Trainer's optimizer.step() handle the actual update
-        total_loss = forget_loss_2 + self.alpha * retain_loss
-        return total_loss.detach() / self.args.gradient_accumulation_steps
+        total_loss = (forget_loss_2 + self.alpha * retain_loss).detach()
+        return total_loss * accum_scale
 
     def _compute_forget_loss(self, model, inputs):
         forget_inputs = inputs["forget"]
