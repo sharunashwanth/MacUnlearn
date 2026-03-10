@@ -30,71 +30,58 @@ class NPO_SAM(NPO):
 
         param_list = [p for p in model.parameters() if p.requires_grad]
 
+        # Save accumulated grads for gradient accumulation
+        accum_grads = [p.grad for p in param_list]
+        for p in param_list:
+            p.grad = None
+
         # Step 1: Compute forget loss and backward for perturbation direction
         forget_loss_1 = self._compute_forget_loss(model, inputs)
         self.accelerator.backward(forget_loss_1)
 
-        perturb_grads = []
-        for p in param_list:
-            if p.grad is not None:
-                perturb_grads.append(p.grad.detach().clone())
-            else:
-                perturb_grads.append(None)
-
-        # Compute perturbation: eps = rho * grad / ||grad||
-        norm_list = [g.norm(2) for g in perturb_grads if g is not None]
-        grad_norm = torch.stack(norm_list).norm(2) if norm_list else torch.tensor(0.0, device=self.args.device)
-
+        # Step 2: Perturb weights (Store eps directly in eps_list reusing p.grad memory)
         eps_list = []
-        for g in perturb_grads:
-            if g is not None:
-                eps_list.append(g * (self.sam_rho / (grad_norm.to(g.device) + 1e-12)))
-            else:
-                eps_list.append(None)
-
-        # Step 2: Perturb weights
-        model.zero_grad()
         with torch.no_grad():
-            for p, eps in zip(param_list, eps_list):
-                if eps is not None:
+            grad_tensors = [p.grad for p in param_list if p.grad is not None]
+            if grad_tensors:
+                grad_norm = torch.stack([g.norm(2) for g in grad_tensors]).norm(2)
+            else:
+                grad_norm = torch.tensor(0.0, device=self.args.device)
+            
+            scale = self.sam_rho / (grad_norm + 1e-12)
+
+            for p in param_list:
+                if p.grad is not None:
+                    eps = p.grad.detach().mul_(scale)
                     p.data.add_(eps)
+                    eps_list.append(eps)
+                else:
+                    eps_list.append(None)
+                p.grad = None
 
         # Step 3: Forward-backward on forget set at perturbed point
         forget_loss_2 = self._compute_forget_loss(model, inputs)
-        self.accelerator.backward(forget_loss_2)
+        self.accelerator.backward(forget_loss_2 * self.gamma)
 
-        forget_grads = []
-        for p in param_list:
-            if p.grad is not None:
-                forget_grads.append(p.grad.detach().clone())
-            else:
-                forget_grads.append(None)
-
-        # Step 4: Restore weights
+        # Step 4: Restore weights and free eps memory immediately
         with torch.no_grad():
             for p, eps in zip(param_list, eps_list):
                 if eps is not None:
                     p.data.sub_(eps)
+        del eps_list
 
-        # Step 5: Forward-backward on retain set
-        model.zero_grad()
+        # Step 5: Forward-backward on retain set at original weights
         retain_loss = self._compute_retain_loss(model, inputs)
-        self.accelerator.backward(retain_loss)
+        self.accelerator.backward(retain_loss * self.alpha)
 
-        retain_grads = []
-        for p in param_list:
-            if p.grad is not None:
-                retain_grads.append(p.grad.detach().clone())
-            else:
-                retain_grads.append(None)
-
-        # Step 6: Combine gradients and set
-        model.zero_grad()
+        # Step 6: Add back accumulated gradients
         with torch.no_grad():
-            for p, fg, rg in zip(param_list, forget_grads, retain_grads):
-                f_grad = fg if fg is not None else torch.zeros_like(p.data)
-                r_grad = rg if rg is not None else torch.zeros_like(p.data)
-                p.grad = self.gamma * f_grad + self.alpha * r_grad
+            for p, acc in zip(param_list, accum_grads):
+                if acc is not None:
+                    if p.grad is not None:
+                        p.grad.add_(acc)
+                    else:
+                        p.grad = acc
 
         # Let HF Trainer's optimizer.step() handle the actual update
         total_loss = forget_loss_2 + self.alpha * retain_loss
