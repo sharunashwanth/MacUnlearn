@@ -24,10 +24,9 @@ class SimNPO_SAM(SimNPO):
 
         param_list = [p for p in model.parameters() if p.requires_grad]
 
-        # 1. Compute perturbation direction using autograd.grad 
-        # This completely avoids touching p.grad, so we NEVER have to stash accumulated gradients!
+        # 1. Compute perturbation direction using autograd.grad
         forget_loss_1 = self._compute_forget_loss(model, inputs)
-        
+
         grads = torch.autograd.grad(
             forget_loss_1,
             param_list,
@@ -42,30 +41,32 @@ class SimNPO_SAM(SimNPO):
         grad_norm = grad_norm_sq.sqrt()
         scale = self.sam_rho / (grad_norm + 1e-12)
 
-        eps_list = []
+        # Build eps, perturb weights, then move eps to CPU to free GPU VRAM
+        eps_cpu = []
         with torch.no_grad():
             for p, g in zip(param_list, grads):
                 if g is not None:
                     eps = g.detach().mul_(scale)
                     p.data.add_(eps)
-                    eps_list.append(eps)
+                    eps_cpu.append(eps.to("cpu"))
+                    del eps
                 else:
-                    eps_list.append(None)
+                    eps_cpu.append(None)
         del grads
+        torch.cuda.empty_cache()
 
         accum_scale = 1.0 / self.args.gradient_accumulation_steps if self.args.gradient_accumulation_steps > 1 else 1.0
 
         # 3. Backward pass on forget set at perturbed point
-        # This natively accumulates directly into the untouched p.grad! No extra VRAM!
         forget_loss_2 = self._compute_forget_loss(model, inputs)
         self.accelerator.backward(forget_loss_2 * self.gamma * accum_scale)
 
-        # 4. Restore weights immediately
+        # 4. Restore weights using CPU-stored eps (one param at a time)
         with torch.no_grad():
-            for p, eps in zip(param_list, eps_list):
-                if eps is not None:
-                    p.data.sub_(eps)
-        del eps_list
+            for p, eps_c in zip(param_list, eps_cpu):
+                if eps_c is not None:
+                    p.data.sub_(eps_c.to(p.data.device))
+        del eps_cpu
 
         # 5. Backward pass on retain set at original weights
         retain_loss = self._compute_retain_loss(model, inputs)
