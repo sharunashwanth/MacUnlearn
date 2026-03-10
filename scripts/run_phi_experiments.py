@@ -70,7 +70,7 @@ def find_latest_checkpoint(task_name):
     return str(checkpoints[-1]) if checkpoints else None
 
 
-def run_unlearn(method, forget_split, args, tracker):
+def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
     splits = SPLIT_MAP[forget_split]
     task_name = get_task_name(method, forget_split)
 
@@ -97,7 +97,7 @@ def run_unlearn(method, forget_split, args, tracker):
         f"trainer.args.gradient_accumulation_steps={args.grad_accum}",
         "trainer.args.ddp_find_unused_parameters=true",
         "trainer.args.gradient_checkpointing=true",
-    ]
+    ] + extra_args
 
     # Resume from checkpoint if available
     checkpoint = find_latest_checkpoint(task_name) if args.resume else None
@@ -121,7 +121,7 @@ def run_unlearn(method, forget_split, args, tracker):
     return True
 
 
-def run_eval(method, forget_split, args, tracker):
+def run_eval(method, forget_split, args, tracker, extra_args=[]):
     splits = SPLIT_MAP[forget_split]
     task_name = get_task_name(method, forget_split)
 
@@ -152,6 +152,8 @@ def run_eval(method, forget_split, args, tracker):
     retain_logs = EVAL_DIR / f"tofu_{MODEL}_{splits['retain']}" / "TOFU_EVAL.json"
     if retain_logs.exists():
         cmd.append(f"retain_logs_path={retain_logs}")
+    
+    cmd += [arg for arg in extra_args if not arg.startswith('trainer.')]
 
     result = subprocess.run(cmd, cwd=str(ROOT))
     if result.returncode != 0:
@@ -189,8 +191,9 @@ def main():
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
     parser.add_argument("--force", action="store_true", help="Force re-run even if completed")
     parser.add_argument("--status", action="store_true", help="Show experiment status and exit")
-    args = parser.parse_args()
+    args, extra_args = parser.parse_known_args()
 
+    # Initial tracker load
     tracker = load_tracker()
 
     if args.status:
@@ -199,16 +202,17 @@ def main():
 
     for method in args.methods:
         if not args.eval_only:
-            success = run_unlearn(method, args.forget_split, args, tracker)
+            success = run_unlearn(method, args.forget_split, args, tracker, extra_args)
             if not success:
                 print(f"[WARN] {method} unlearning failed, skipping eval")
                 print_progress(tracker, args.methods, args.forget_split)
                 continue
 
         if not args.skip_eval:
-            run_eval(method, args.forget_split, args, tracker)
+            run_eval(method, args.forget_split, args, tracker, extra_args)
 
         print_progress(tracker, args.methods, args.forget_split)
+
 
     print("\n" + "=" * 60)
     print("ALL EXPERIMENTS COMPLETE")
