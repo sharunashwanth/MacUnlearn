@@ -49,10 +49,15 @@ def get_model(model_cfg: DictConfig):
     model_cls = MODEL_REGISTRY[model_handler]
     with open_dict(model_args):
         model_path = model_args.pop("pretrained_model_name_or_path", None)
+        low_cpu_mem_usage = model_args.pop("low_cpu_mem_usage", True)
+        load_in_4bit = model_args.pop("load_in_4bit", False)
+        
     try:
         model = model_cls.from_pretrained(
             pretrained_model_name_or_path=model_path,
             torch_dtype=torch_dtype,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+            load_in_4bit=load_in_4bit,
             **model_args,
             cache_dir=hf_home,
         )

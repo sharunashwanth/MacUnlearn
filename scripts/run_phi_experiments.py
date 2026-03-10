@@ -99,6 +99,8 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         "trainer.args.gradient_checkpointing=true",
         "trainer.args.eval_strategy=no",
         "trainer.args.eval_on_start=false",
+        "model.model_args.load_in_4bit=true",
+        "model.model_args.low_cpu_mem_usage=true",
     ] + extra_args
 
     # Resume from checkpoint if available
@@ -158,6 +160,10 @@ def run_eval(method, forget_split, args, tracker, extra_args=[]):
         f"model={MODEL}",
         f"task_name={task_name}",
         f"model.model_args.pretrained_model_name_or_path={model_path}",
+        "model.model_args.load_in_4bit=true",
+        "model.model_args.low_cpu_mem_usage=true",
+        # Limit generation to prevent long generation OOM
+        "evaluator.eval_args.generate_args.max_new_tokens=64",
         f"paths.output_dir={model_path / 'evals'}",
     ]
 
