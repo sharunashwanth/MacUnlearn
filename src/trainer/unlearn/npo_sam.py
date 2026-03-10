@@ -30,64 +30,52 @@ class NPO_SAM(NPO):
 
         param_list = [p for p in model.parameters() if p.requires_grad]
 
-        # 1. Store accumulated gradients on CPU to extremely save VRAM
-        accum_grads_cpu = []
-        for p in param_list:
-            if p.grad is not None:
-                accum_grads_cpu.append(p.grad.cpu())
-                p.grad = None
-            else:
-                accum_grads_cpu.append(None)
-
-        # 2. Compute perturbation direction
+        # 1. Compute perturbation direction using autograd.grad 
+        # This completely avoids touching p.grad, so we NEVER have to stash accumulated gradients!
         forget_loss_1 = self._compute_forget_loss(model, inputs)
-        self.accelerator.backward(forget_loss_1)
+        
+        grads = torch.autograd.grad(
+            forget_loss_1,
+            param_list,
+            allow_unused=True
+        )
 
-        # 3. Calculate perturbation scale and apply it
+        # 2. Calculate perturbation scale and perturb weights in-place
         grad_norm_sq = torch.tensor(0.0, device=self.args.device)
-        for p in param_list:
-            if p.grad is not None:
-                grad_norm_sq += p.grad.detach().norm(2).pow(2)
+        for g in grads:
+            if g is not None:
+                grad_norm_sq += g.detach().norm(2).pow(2)
         grad_norm = grad_norm_sq.sqrt()
         scale = self.sam_rho / (grad_norm + 1e-12)
 
-        eps_cpu = []
+        eps_list = []
         with torch.no_grad():
-            for p in param_list:
-                if p.grad is not None:
-                    p.grad.mul_(scale)
-                    p.data.add_(p.grad)
-                    eps_cpu.append(p.grad.cpu())
-                    p.grad = None
+            for p, g in zip(param_list, grads):
+                if g is not None:
+                    eps = g.detach().mul_(scale)
+                    p.data.add_(eps)
+                    eps_list.append(eps)
                 else:
-                    eps_cpu.append(None)
+                    eps_list.append(None)
+        del grads
 
         accum_scale = 1.0 / self.args.gradient_accumulation_steps if self.args.gradient_accumulation_steps > 1 else 1.0
 
-        # 4. Backward pass on forget set at perturbed point
+        # 3. Backward pass on forget set at perturbed point
+        # This natively accumulates directly into the untouched p.grad! No extra VRAM!
         forget_loss_2 = self._compute_forget_loss(model, inputs)
         self.accelerator.backward(forget_loss_2 * self.gamma * accum_scale)
 
-        # 5. Restore weights immediately (loads eps to GPU individually to avoid bulk allocation)
+        # 4. Restore weights immediately
         with torch.no_grad():
-            for p, eps in zip(param_list, eps_cpu):
+            for p, eps in zip(param_list, eps_list):
                 if eps is not None:
-                    p.data.sub_(eps.to(p.device, non_blocking=True))
-        del eps_cpu
+                    p.data.sub_(eps)
+        del eps_list
 
-        # 6. Backward pass on retain set at original weights (accumulates in p.grad)
+        # 5. Backward pass on retain set at original weights
         retain_loss = self._compute_retain_loss(model, inputs)
         self.accelerator.backward(retain_loss * self.alpha * accum_scale)
-
-        # 7. Merge stored accumulated gradients back into p.grad parameter-by-parameter
-        with torch.no_grad():
-            for p, acc in zip(param_list, accum_grads_cpu):
-                if acc is not None:
-                    acc_gpu = acc.to(p.device, non_blocking=True)
-                    if p.grad is not None:
-                        p.grad.add_(acc_gpu)
-                    else:
-                        p.grad = acc_gpu
 
         # Let HF Trainer's optimizer.step() handle the actual update
         total_loss = (forget_loss_2 + self.alpha * retain_loss).detach()
