@@ -101,6 +101,9 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         "trainer.args.eval_on_start=false",
         "+trainer.args.fp16=true",
         "trainer.args.bf16=false",
+        "trainer.args.bf16_full_eval=false",
+        "+trainer.args.fp16_full_eval=true",
+        "trainer.args.optim=adamw_bnb_8bit",
         "+model.model_args.low_cpu_mem_usage=true",
     ] + extra_args
 
