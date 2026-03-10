@@ -99,7 +99,7 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         "trainer.args.gradient_checkpointing=true",
         "trainer.args.eval_strategy=no",
         "trainer.args.eval_on_start=false",
-        "trainer.args.fp16=true",
+        "+trainer.args.fp16=true",
         "+model.model_args.low_cpu_mem_usage=true",
     ] + extra_args
 
