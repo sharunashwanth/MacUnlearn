@@ -167,7 +167,6 @@ def run_eval(method, forget_split, args, tracker, extra_args=[]):
         f"model={MODEL}",
         f"task_name={task_name}",
         f"model.model_args.pretrained_model_name_or_path={model_path}",
-        "trainer.args.bf16=false",
         "+model.model_args.low_cpu_mem_usage=true",
         "+model.model_args.load_in_4bit=true",
         f"paths.output_dir={model_path / 'evals'}",
