@@ -25,43 +25,45 @@ echo "============================================"
 
 # --- 1. Create persistent GDrive directories ---
 echo "[1/5] Creating GDrive directories..."
-mkdir -p "${GDRIVE_BASE}/saves"
+mkdir -p "${GDRIVE_BASE}/saves/unlearn"
+mkdir -p "${GDRIVE_BASE}/saves/eval"
 mkdir -p "${GDRIVE_BASE}/hf_cache"
 mkdir -p "${GDRIVE_BASE}/data"
 
 # --- 2. Symlink saves/ to GDrive ---
 echo "[2/5] Symlinking saves/ and caches to GDrive..."
+# If saves exists as a directory, move its content to GDrive then replace with symlink
 if [ -d "${REPO_DIR}/saves" ] && [ ! -L "${REPO_DIR}/saves" ]; then
-    # If saves/ exists and is a real dir, move contents to GDrive first
     cp -rn "${REPO_DIR}/saves/"* "${GDRIVE_BASE}/saves/" 2>/dev/null || true
     rm -rf "${REPO_DIR}/saves"
 fi
 ln -sfn "${GDRIVE_BASE}/saves" "${REPO_DIR}/saves"
 
-# Symlink data/ (downloaded datasets) to GDrive
 if [ -d "${REPO_DIR}/data" ] && [ ! -L "${REPO_DIR}/data" ]; then
     cp -rn "${REPO_DIR}/data/"* "${GDRIVE_BASE}/data/" 2>/dev/null || true
     rm -rf "${REPO_DIR}/data"
 fi
 ln -sfn "${GDRIVE_BASE}/data" "${REPO_DIR}/data"
 
-# HuggingFace cache → GDrive (model downloads persist)
 export HF_HOME="${GDRIVE_BASE}/hf_cache"
-echo "export HF_HOME=${GDRIVE_BASE}/hf_cache" >> ~/.bashrc
 
-# --- 3. Install dependencies ---
+# --- 3. Install dependencies & Fix Torchvision ---
 echo "[3/5] Installing dependencies..."
 cd "${REPO_DIR}"
-pip install -q -e . 2>&1 | tail -5
+# Install everything except torch first to avoid conflicts, then fix torch/torchvision
+pip install -q -e . 
+# Fix the "torchvision::nms" error by ensuring compatible versions
+pip install -q --no-deps torchvision==0.19.1 torch==2.4.1
 
-# --- 4. Download eval logs (if not already on GDrive) ---
-echo "[4/5] Downloading eval data (if needed)..."
+# --- 4. Download eval logs & datasets ---
+echo "[4/5] Downloading data (if needed)..."
 if [ ! -f "${GDRIVE_BASE}/saves/eval/.downloaded" ]; then
     python setup_data.py --eval_logs
     touch "${GDRIVE_BASE}/saves/eval/.downloaded"
-    echo "  Eval data downloaded."
-else
-    echo "  Eval data already exists on GDrive."
+fi
+if [ ! -f "${GDRIVE_BASE}/data/.idk_downloaded" ]; then
+    python setup_data.py --idk
+    touch "${GDRIVE_BASE}/data/.idk_downloaded"
 fi
 
 # --- 5. Verify setup ---
