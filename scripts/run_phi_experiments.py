@@ -96,7 +96,7 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         f"trainer.args.per_device_train_batch_size={args.batch_size}",
         f"trainer.args.gradient_accumulation_steps={args.grad_accum}",
         "trainer.args.ddp_find_unused_parameters=true",
-        "trainer.args.gradient_checkpointing=true",
+        "trainer.args.gradient_checkpointing=false",
         "trainer.args.eval_strategy=no",
         "trainer.args.eval_on_start=false",
         "+trainer.args.fp16=true",
@@ -104,6 +104,7 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         "trainer.args.bf16_full_eval=false",
         "+trainer.args.fp16_full_eval=true",
         "trainer.args.optim=adamw_bnb_8bit",
+        "+model.model_args.load_in_8bit=true",
         "+model.model_args.low_cpu_mem_usage=true",
     ] + extra_args
 
@@ -206,8 +207,8 @@ def main():
                         choices=ALL_METHODS, help="Methods to run")
     parser.add_argument("--forget_split", default="forget05",
                         choices=list(SPLIT_MAP.keys()), help="Forget split to use")
-    parser.add_argument("--batch_size", type=int, default=4, help="Per-device batch size")
-    parser.add_argument("--grad_accum", type=int, default=4, help="Gradient accumulation steps")
+    parser.add_argument("--batch_size", type=int, default=1, help="Per-device batch size")
+    parser.add_argument("--grad_accum", type=int, default=16, help="Gradient accumulation steps")
     parser.add_argument("--skip_eval", action="store_true", help="Skip evaluation after unlearning")
     parser.add_argument("--eval_only", action="store_true", help="Only run evaluation")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
