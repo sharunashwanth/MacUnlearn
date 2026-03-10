@@ -1,0 +1,10 @@
+defaults:
+  - NPO
+
+handler: NPO_SAM
+method_args:
+  beta: 0.1
+  alpha: 1.0  # retain loss coefficient (coeff in paper)
+  gamma: 1.0  # forget loss coefficient (npo_coeff in paper)
+  retain_loss_type: NLL
+  sam_rho: 0.01

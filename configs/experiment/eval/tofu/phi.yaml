@@ -1,0 +1,21 @@
+# @package _global_
+
+defaults:
+  - override /model: phi-1_5
+  - override /eval: tofu
+
+forget_split: forget05
+holdout_split: holdout05
+retain_logs_path: null
+
+model:
+  model_args:
+    pretrained_model_name_or_path: locuslab/tofu_ft_phi-1.5
+
+eval:
+  tofu:
+    forget_split: ${forget_split}
+    holdout_split: ${holdout_split}
+    retain_logs_path: ${retain_logs_path}
+
+task_name: ???

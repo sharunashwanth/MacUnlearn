@@ -15,6 +15,8 @@ from trainer.unlearn.ceu import CEU
 from trainer.unlearn.satimp import SatImp
 from trainer.unlearn.wga import WGA
 from trainer.unlearn.pdu import PDU
+from trainer.unlearn.npo_sam import NPO_SAM
+from trainer.unlearn.simnpo_sam import SimNPO_SAM
 
 
 import logging
@@ -99,3 +101,5 @@ _register_trainer(CEU)
 _register_trainer(SatImp)
 _register_trainer(WGA)
 _register_trainer(PDU)
+_register_trainer(NPO_SAM)
+_register_trainer(SimNPO_SAM)
