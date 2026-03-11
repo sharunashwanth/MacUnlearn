@@ -107,6 +107,7 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         "trainer.args.optim=adafactor",
         "+model.model_args.low_cpu_mem_usage=true",
         "+model.model_args.device_map=auto",
+        "+model.model_args.torch_dtype=float16",
         "++trainer.args.max_grad_norm=1.0",
         "++trainer.args.learning_rate=1e-5",
         "++trainer.args.save_total_limit=1",
