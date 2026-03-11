@@ -14,11 +14,22 @@ class GradDiff(UnlearnTrainer):
             self.ref_model = self._prepare_ref_model(self.model)
 
     def _prepare_ref_model(self, model):
-        ref_model = copy.deepcopy(model).to(self.accelerator.device)
+        # device_map dispatched models can't be deepcopied — load fresh instead
+        device_map = getattr(model, "hf_device_map", None)
+        if device_map:
+            from transformers import AutoModelForCausalLM
+            ref_model = AutoModelForCausalLM.from_pretrained(
+                model.config._name_or_path,
+                device_map=device_map,
+                torch_dtype=next(model.parameters()).dtype,
+                low_cpu_mem_usage=True,
+            )
+        else:
+            ref_model = copy.deepcopy(model).to(self.accelerator.device)
         ref_model.eval()
         if self.is_deepspeed_enabled:
             ref_model = self._prepare_deepspeed(ref_model)
-        else:
+        elif not device_map:
             ref_model = self.accelerator.prepare_model(ref_model, evaluation_mode=True)
         return ref_model
 
