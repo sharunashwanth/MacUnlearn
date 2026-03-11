@@ -62,7 +62,6 @@ def run_relearning_attack(model_path, forget_split, strategy, epochs=3, lr=1e-5,
         f"++data.train.TOFU_QA_full.args.hf_args.path=locuslab/tofu",
         f"++data.train.TOFU_QA_full.args.hf_args.name={splits['forget']}",
         "+model.model_args.low_cpu_mem_usage=true",
-        "+model.model_args.device_map=auto",
         "+model.model_args.torch_dtype=float16",
         f"trainer.args.num_train_epochs={epochs}",
         f"trainer.args.learning_rate={lr}",
@@ -73,7 +72,8 @@ def run_relearning_attack(model_path, forget_split, strategy, epochs=3, lr=1e-5,
         "trainer.args.eval_on_start=false",
     ]
 
-    result = subprocess.run(cmd, cwd=str(ROOT))
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "0"}
+    result = subprocess.run(cmd, cwd=str(ROOT), env=env)
     if result.returncode == 0:
         (out_dir / "RELEARN_DONE").touch()
     return str(out_dir) if result.returncode == 0 else None
