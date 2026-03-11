@@ -109,6 +109,7 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
         "+model.model_args.device_map=auto",
         "++trainer.args.max_grad_norm=1.0",
         "++trainer.args.learning_rate=1e-5",
+        "++trainer.args.save_total_limit=1",
     ] + extra_args
 
     # Resume from checkpoint if available
