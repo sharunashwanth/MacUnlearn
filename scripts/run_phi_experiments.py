@@ -120,9 +120,8 @@ def run_unlearn(method, forget_split, args, tracker, extra_args=[]):
     # Find pre-computed retain logs if we don't have our own yet
     retain_logs = None
     if EVAL_DIR.exists():
-        # Look for any json in saves/eval that contains our split name AND model name
-        for f in EVAL_DIR.rglob("*.json"):
-            # Ensure it matches the split (e.g. retain95) AND the model (e.g. phi)
+        # Must be TOFU_EVAL.json (not SUMMARY) — it has per-example value_by_index
+        for f in EVAL_DIR.rglob("TOFU_EVAL.json"):
             if splits['retain'] in str(f) and "phi" in str(f).lower():
                 retain_logs = f
                 break
