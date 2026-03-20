@@ -73,6 +73,9 @@ def collect():
     return results
 
 
+FIG_DIR = SAVES_DIR / "figures"
+FIG_DIR.mkdir(parents=True, exist_ok=True)
+
 results = collect()
 methods = [m for m in ALL_METHODS if m in results and "standard" in results[m]]
 print(f"Loaded results for {len(methods)} methods: {methods}")
@@ -107,7 +110,7 @@ ax.set_title(f"Unlearning Method Comparison — TOFU {FORGET_SPLIT} (Phi‑1.5)"
 ax.legend(loc="lower right", framealpha=0.9, fontsize=10)
 ax.invert_yaxis()
 fig1.tight_layout()
-fig1.savefig(SAVES_DIR / f"figures/metric_comparison_{FORGET_SPLIT}.png")
+fig1.savefig(FIG_DIR / f"metric_comparison_{FORGET_SPLIT}.png")
 plt.show()
 
 
@@ -135,7 +138,7 @@ ax.set_title(f"Privacy–Utility Trade-off — TOFU {FORGET_SPLIT} (Phi‑1.5)",
              fontweight="bold", pad=12)
 ax.grid(True, alpha=0.2, linestyle="--")
 fig2.tight_layout()
-fig2.savefig(SAVES_DIR / f"figures/tradeoff_scatter_{FORGET_SPLIT}.png")
+fig2.savefig(FIG_DIR / f"tradeoff_scatter_{FORGET_SPLIT}.png")
 plt.show()
 
 
@@ -180,7 +183,7 @@ if len(avail_m) >= 3:
                  fontweight="bold", pad=20, fontsize=14)
     ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.12), fontsize=9, framealpha=0.9)
     fig3.tight_layout()
-    fig3.savefig(SAVES_DIR / f"figures/radar_{FORGET_SPLIT}.png")
+    fig3.savefig(FIG_DIR / f"radar_{FORGET_SPLIT}.png")
     plt.show()
 else:
     print("⚠ Not enough metrics for radar chart (need ≥3)")
@@ -225,7 +228,7 @@ ax.set_title("SimNPO + SAM — Relearning Attack Results\n(TOFU forget05, Phi‑
 ax.legend(fontsize=11, loc="upper left")
 ax.grid(axis="y", alpha=0.15, linestyle="--")
 fig4.tight_layout()
-fig4.savefig(SAVES_DIR / f"figures/simnpo_sam_relearn_{FORGET_SPLIT}.png")
+fig4.savefig(FIG_DIR / f"simnpo_sam_relearn_{FORGET_SPLIT}.png")
 plt.show()
 
 
@@ -262,7 +265,7 @@ cbar.set_label("Score", fontsize=11)
 ax.set_title(f"Method × Metric Heatmap — TOFU {FORGET_SPLIT} (Phi‑1.5)",
              fontweight="bold", pad=12)
 fig5.tight_layout()
-fig5.savefig(SAVES_DIR / f"figures/heatmap_{FORGET_SPLIT}.png")
+fig5.savefig(FIG_DIR / f"heatmap_{FORGET_SPLIT}.png")
 plt.show()
 
-print(f"\n✓ All figures saved to {SAVES_DIR / 'figures'}/")
+print(f"\n✓ All figures saved to {FIG_DIR}/")
