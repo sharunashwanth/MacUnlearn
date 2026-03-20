@@ -163,7 +163,7 @@ def plot_tradeoff_scatter(results, forget_split):
     # Ideal region
     ax.axhspan(0.5, 1.05, color="#2a9d8f", alpha=0.06, zorder=0)
     ax.axvspan(0.3, 0.55, color="#e9c46a", alpha=0.06, zorder=0)
-    ax.text(0.42, 0.96, "★ Ideal Region", fontsize=10, color="#2a9d8f",
+    ax.text(0.42, 0.96, "* Ideal Region *", fontsize=10, color="#2a9d8f",
             ha="center", fontstyle="italic", alpha=0.7)
 
     ax.set_xlabel("Model Utility  →  higher is better", fontsize=12)

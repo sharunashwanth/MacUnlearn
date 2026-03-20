@@ -1,17 +1,14 @@
 """
-Standalone visualization for Kaggle notebook cells.
+Visualization for MacUnlearn experiment results (Kaggle notebook).
 
-Run this directly in a Kaggle notebook cell:
+Usage:
     %run scripts/visualize_notebook.py
-
-Or copy the contents into a notebook cell. All data is loaded from the
-saves/ directory automatically.
 """
 
 import json
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
+import matplotlib.gridspec as gridspec
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -22,7 +19,10 @@ MODEL = "phi-1_5"
 FORGET_SPLIT = "forget05"
 ALL_METHODS = ["GradAscent", "GradDiff", "NPO", "SimNPO", "NPO_SAM", "SimNPO_SAM"]
 
-# ── Colors ─────────────────────────────────────────────────────────────────
+FIG_DIR = SAVES_DIR / "figures"
+FIG_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── Colors & Style ─────────────────────────────────────────────────────────
 COLORS = {
     "GradAscent":  "#e63946",
     "GradDiff":    "#457b9d",
@@ -35,10 +35,11 @@ MARKERS = {"GradAscent": "o", "GradDiff": "s", "NPO": "D",
            "SimNPO": "^", "NPO_SAM": "v", "SimNPO_SAM": "P"}
 
 plt.rcParams.update({
-    "font.family": "serif", "font.size": 12, "axes.titlesize": 14,
+    "font.size": 12, "axes.titlesize": 14,
     "axes.labelsize": 13, "figure.dpi": 150, "savefig.dpi": 200,
     "savefig.bbox": "tight", "axes.spines.top": False, "axes.spines.right": False,
 })
+
 
 # ── Data loading ───────────────────────────────────────────────────────────
 def load_eval(eval_dir):
@@ -73,84 +74,90 @@ def collect():
     return results
 
 
-FIG_DIR = SAVES_DIR / "figures"
-FIG_DIR.mkdir(parents=True, exist_ok=True)
-
 results = collect()
 methods = [m for m in ALL_METHODS if m in results and "standard" in results[m]]
-print(f"Loaded results for {len(methods)} methods: {methods}")
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  FIGURE 1 — Grouped Bar Chart: Metric Comparison
-# ═══════════════════════════════════════════════════════════════════════════
-metrics = ["forget_quality", "model_utility", "forget_Q_A_Prob", "forget_Q_A_ROUGE"]
-metric_labels = ["Forget Quality", "Model Utility", "Forget QA Prob", "Forget QA ROUGE"]
-n_methods = len(methods)
-n_metrics = len(metrics)
-bar_h = 0.14
-y_pos = np.arange(n_methods)
-palette = ["#264653", "#2a9d8f", "#e9c46a", "#f4a261"]
-
-fig1, ax = plt.subplots(figsize=(10, max(4, n_methods * 0.9 + 1)))
-for i, (metric, lab) in enumerate(zip(metrics, metric_labels)):
-    vals = [results[m]["standard"].get(metric, 0) for m in methods]
-    offsets = y_pos + (i - n_metrics / 2 + 0.5) * bar_h
-    bars = ax.barh(offsets, vals, height=bar_h, color=palette[i],
-                   edgecolor="white", linewidth=0.5, label=lab)
-    for bar, v in zip(bars, vals):
-        ax.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height() / 2,
-                f"{v:.3f}", va="center", fontsize=8.5, color="#333")
-
-ax.set_yticks(y_pos)
-ax.set_yticklabels(methods, fontsize=12, fontweight="medium")
-ax.set_xlabel("Score")
-ax.set_xlim(0, 1.05)
-ax.set_title(f"Unlearning Method Comparison — TOFU {FORGET_SPLIT} (Phi‑1.5)",
-             fontweight="bold", pad=12)
-ax.legend(loc="lower right", framealpha=0.9, fontsize=10)
-ax.invert_yaxis()
-fig1.tight_layout()
-fig1.savefig(FIG_DIR / f"metric_comparison_{FORGET_SPLIT}.png")
-plt.show()
+print(f"Loaded {len(methods)} methods: {', '.join(methods)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  FIGURE 2 — Scatter: Forget Quality vs Model Utility Trade-off
+#  FIGURE 1 — Privacy-Utility Trade-off Scatter
 # ═══════════════════════════════════════════════════════════════════════════
-fig2, ax = plt.subplots(figsize=(8, 6))
+fig1, ax = plt.subplots(figsize=(9, 6.5))
+
+# Shade ideal quadrant
+ax.fill_between([0.3, 0.55], 0.5, 1.05, color="#2a9d8f", alpha=0.07, zorder=0)
+ax.text(0.42, 0.97, "Ideal Region", fontsize=10, color="#2a9d8f",
+        ha="center", fontstyle="italic", alpha=0.6)
+
 for m in methods:
     fq = results[m]["standard"].get("forget_quality", 0)
     mu = results[m]["standard"].get("model_utility", 0)
-    ax.scatter(mu, fq, s=180, c=COLORS[m], marker=MARKERS[m],
-               edgecolors="white", linewidth=1.2, zorder=3)
+    ax.scatter(mu, fq, s=220, c=COLORS[m], marker=MARKERS[m],
+               edgecolors="white", linewidth=1.5, zorder=3, label=m)
+    # Smart label offset to reduce overlap
+    dx, dy = 10, 8
+    if m == "NPO_SAM":
+        dy = -14
+    elif m == "NPO":
+        dy = -14
     ax.annotate(m, (mu, fq), textcoords="offset points",
-                xytext=(8, 6), fontsize=10, color="#333", fontweight="medium")
+                xytext=(dx, dy), fontsize=10, color="#333", fontweight="medium")
 
-ax.axhspan(0.5, 1.05, color="#2a9d8f", alpha=0.06, zorder=0)
-ax.axvspan(0.3, 0.55, color="#e9c46a", alpha=0.06, zorder=0)
-ax.text(0.42, 0.96, "★ Ideal Region", fontsize=10, color="#2a9d8f",
-        ha="center", fontstyle="italic", alpha=0.7)
-ax.set_xlabel("Model Utility  →  higher is better")
-ax.set_ylabel("Forget Quality  →  higher is better")
+ax.set_xlabel("Model Utility  (higher = better)")
+ax.set_ylabel("Forget Quality  (higher = better)")
 ax.set_xlim(-0.02, 0.55)
-ax.set_ylim(-0.02, 1.05)
-ax.set_title(f"Privacy–Utility Trade-off — TOFU {FORGET_SPLIT} (Phi‑1.5)",
-             fontweight="bold", pad=12)
-ax.grid(True, alpha=0.2, linestyle="--")
-fig2.tight_layout()
-fig2.savefig(FIG_DIR / f"tradeoff_scatter_{FORGET_SPLIT}.png")
+ax.set_ylim(-0.05, 1.08)
+ax.set_title(f"Privacy-Utility Trade-off\nTOFU {FORGET_SPLIT} | Phi-1.5",
+             fontweight="bold", pad=14)
+ax.grid(True, alpha=0.15, linestyle="--")
+fig1.tight_layout()
+fig1.savefig(FIG_DIR / f"tradeoff_{FORGET_SPLIT}.png")
 plt.show()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  FIGURE 3 — Radar Chart: Method Profiles
+#  FIGURE 2 — Heatmap: Methods x Metrics
+# ═══════════════════════════════════════════════════════════════════════════
+hm_metrics = ["forget_quality", "model_utility", "forget_Q_A_Prob", "forget_Q_A_ROUGE"]
+hm_labels  = ["Forget Quality", "Model Utility", "Forget QA Prob", "Forget QA ROUGE"]
+
+data_matrix = np.array([
+    [results[m]["standard"].get(met, 0) for met in hm_metrics]
+    for m in methods
+])
+
+fig2, ax = plt.subplots(figsize=(8, max(3.5, len(methods) * 0.65 + 1.2)))
+im = ax.imshow(data_matrix, cmap="RdYlGn", aspect="auto", vmin=0, vmax=1)
+
+ax.set_xticks(range(len(hm_labels)))
+ax.set_xticklabels(hm_labels, fontsize=11, rotation=20, ha="right")
+ax.set_yticks(range(len(methods)))
+ax.set_yticklabels(methods, fontsize=11, fontweight="medium")
+
+for i in range(len(methods)):
+    for j in range(len(hm_metrics)):
+        val = data_matrix[i, j]
+        text_color = "white" if val > 0.65 or val < 0.15 else "#222"
+        ax.text(j, i, f"{val:.4f}", ha="center", va="center",
+                fontsize=10.5, fontweight="bold", color=text_color)
+
+cbar = fig2.colorbar(im, ax=ax, shrink=0.75, pad=0.03)
+cbar.set_label("Score", fontsize=11)
+ax.set_title(f"Method Performance Overview\nTOFU {FORGET_SPLIT} | Phi-1.5",
+             fontweight="bold", pad=14)
+fig2.tight_layout()
+fig2.savefig(FIG_DIR / f"heatmap_{FORGET_SPLIT}.png")
+plt.show()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  FIGURE 3 — Radar: Method Profiles
 # ═══════════════════════════════════════════════════════════════════════════
 radar_metrics = ["forget_quality", "model_utility", "forget_Q_A_Prob",
                  "forget_Q_A_ROUGE", "forget_Truth_Ratio"]
 radar_labels  = ["Forget\nQuality", "Model\nUtility", "Forget\nQA Prob",
                  "Forget\nQA ROUGE", "Truth\nRatio"]
 
-# Filter to available metrics
 avail_m, avail_l = [], []
 for met, lab in zip(radar_metrics, radar_labels):
     if any(results[m]["standard"].get(met) is not None for m in methods):
@@ -162,7 +169,7 @@ if len(avail_m) >= 3:
     angles = np.linspace(0, 2 * np.pi, n, endpoint=False).tolist()
     angles += angles[:1]
 
-    fig3, ax = plt.subplots(figsize=(7, 7), subplot_kw=dict(polar=True))
+    fig3, ax = plt.subplots(figsize=(8, 7), subplot_kw=dict(polar=True))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     ax.set_xticks(angles[:-1])
@@ -176,96 +183,159 @@ if len(avail_m) >= 3:
     for m in methods:
         vals = [results[m]["standard"].get(met, 0) for met in avail_m]
         vals += vals[:1]
-        ax.plot(angles, vals, linewidth=2, color=COLORS[m], label=m)
-        ax.fill(angles, vals, alpha=0.08, color=COLORS[m])
+        ax.plot(angles, vals, linewidth=2.2, color=COLORS[m], label=m)
+        ax.fill(angles, vals, alpha=0.06, color=COLORS[m])
 
-    ax.set_title(f"Method Profiles — TOFU {FORGET_SPLIT} (Phi‑1.5)",
-                 fontweight="bold", pad=20, fontsize=14)
-    ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.12), fontsize=9, framealpha=0.9)
+    ax.set_title(f"Method Profiles\nTOFU {FORGET_SPLIT} | Phi-1.5",
+                 fontweight="bold", pad=24, fontsize=14)
+    ax.legend(loc="upper right", bbox_to_anchor=(1.38, 1.12), fontsize=9, framealpha=0.9)
     fig3.tight_layout()
     fig3.savefig(FIG_DIR / f"radar_{FORGET_SPLIT}.png")
     plt.show()
 else:
-    print("⚠ Not enough metrics for radar chart (need ≥3)")
+    print("Not enough metrics for radar chart (need >= 3)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  FIGURE 4 — SimNPO_SAM Relearning Attack Detail
+#  FIGURE 4 — Relearning Attack: SimNPO vs SimNPO_SAM Side-by-Side
 # ═══════════════════════════════════════════════════════════════════════════
+rl_methods = ["SimNPO", "SimNPO_SAM"]
 rl_metrics = ["forget_quality", "model_utility", "forget_Q_A_ROUGE", "extraction_strength"]
-rl_labels  = ["Forget Quality", "Model Utility", "Forget QA\nROUGE", "Extraction\nStrength"]
-before = [0.5453, 0.3898, 0.5639, 0.3627]
-after  = [0.9647, 0.3849, 0.8391, 0.9803]
+rl_labels  = ["Forget\nQuality", "Model\nUtility", "Forget QA\nROUGE", "Extraction\nStrength"]
 
-x = np.arange(len(rl_metrics))
-bar_w = 0.32
+# Try loading relearning data dynamically; fall back to hardcoded
+def get_relearn_data(method):
+    """Return (before_dict, after_dict) for a method, or None."""
+    if method not in results:
+        return None
+    entry = results[method]
+    if "standard" not in entry:
+        return None
+    relearn_key = next((k for k in entry if k.startswith("relearn_")), None)
+    if relearn_key and entry.get(relearn_key):
+        return entry["standard"], entry[relearn_key]
+    return None
 
-fig4, ax = plt.subplots(figsize=(9, 5.5))
-b1 = ax.bar(x - bar_w / 2, before, bar_w, color="#264653",
-            edgecolor="white", linewidth=0.8, label="Before Relearning")
-b2 = ax.bar(x + bar_w / 2, after, bar_w, color="#e76f51",
-            edgecolor="white", linewidth=0.8, label="After Relearning")
+# Hardcoded fallback from user's output (in case eval JSONs don't have extraction_strength)
+FALLBACK = {
+    "SimNPO_SAM": {
+        "before": {"forget_quality": 0.5453, "model_utility": 0.3898,
+                   "forget_Q_A_ROUGE": 0.5639, "extraction_strength": 0.3627},
+        "after":  {"forget_quality": 0.9647, "model_utility": 0.3849,
+                   "forget_Q_A_ROUGE": 0.8391, "extraction_strength": 0.9803},
+    },
+}
 
-for bar_group in [b1, b2]:
-    for bar in bar_group:
-        h = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width() / 2, h + 0.02,
-                f"{h:.3f}", ha="center", va="bottom", fontsize=10, fontweight="medium")
+relearn_data = {}
+for m in rl_methods:
+    loaded = get_relearn_data(m)
+    if loaded:
+        relearn_data[m] = {"before": loaded[0], "after": loaded[1]}
+    elif m in FALLBACK:
+        relearn_data[m] = FALLBACK[m]
 
-for i, (b, a) in enumerate(zip(before, after)):
-    delta = a - b
-    color = "#2a9d8f" if delta > 0 else "#e63946"
-    sign = "+" if delta > 0 else ""
-    ax.annotate(f"{sign}{delta:.3f}", xy=(i, max(a, b) + 0.08),
-                ha="center", fontsize=9, color=color, fontweight="bold")
+available_rl_methods = [m for m in rl_methods if m in relearn_data]
 
-ax.set_xticks(x)
-ax.set_xticklabels(rl_labels, fontsize=11)
-ax.set_ylim(0, 1.18)
-ax.set_ylabel("Score")
-ax.set_title("SimNPO + SAM — Relearning Attack Results\n(TOFU forget05, Phi‑1.5)",
-             fontweight="bold", pad=12, fontsize=14)
-ax.legend(fontsize=11, loc="upper left")
-ax.grid(axis="y", alpha=0.15, linestyle="--")
-fig4.tight_layout()
-fig4.savefig(FIG_DIR / f"simnpo_sam_relearn_{FORGET_SPLIT}.png")
-plt.show()
+if available_rl_methods:
+    n_panels = len(available_rl_methods)
+    fig4, axes = plt.subplots(1, n_panels, figsize=(7 * n_panels, 6),
+                               sharey=True, squeeze=False)
+    axes = axes[0]
+
+    bar_w = 0.30
+    x = np.arange(len(rl_metrics))
+    c_before = "#264653"
+    c_after  = "#e76f51"
+
+    for idx, (m, ax) in enumerate(zip(available_rl_methods, axes)):
+        bdata = relearn_data[m]["before"]
+        adata = relearn_data[m]["after"]
+        before_vals = [bdata.get(met, 0) for met in rl_metrics]
+        after_vals  = [adata.get(met, 0) for met in rl_metrics]
+
+        b1 = ax.bar(x - bar_w / 2, before_vals, bar_w, color=c_before,
+                    edgecolor="white", linewidth=0.8, label="Before Relearning")
+        b2 = ax.bar(x + bar_w / 2, after_vals, bar_w, color=c_after,
+                    edgecolor="white", linewidth=0.8, label="After Relearning")
+
+        # Value labels
+        for bars in [b1, b2]:
+            for bar in bars:
+                h = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width() / 2, h + 0.015,
+                        f"{h:.3f}", ha="center", va="bottom", fontsize=9, fontweight="medium")
+
+        # Delta annotations
+        for i, (b, a) in enumerate(zip(before_vals, after_vals)):
+            delta = a - b
+            color = "#2a9d8f" if delta > 0 else "#e63946"
+            sign = "+" if delta > 0 else ""
+            y_pos = max(a, b) + 0.07
+            ax.annotate(f"{sign}{delta:.3f}", xy=(i, y_pos),
+                        ha="center", fontsize=9, color=color, fontweight="bold",
+                        bbox=dict(boxstyle="round,pad=0.15", fc="white", ec=color, alpha=0.8, lw=0.8))
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(rl_labels, fontsize=10)
+        ax.set_ylim(0, 1.22)
+        ax.set_title(m, fontweight="bold", fontsize=14, pad=10,
+                     color=COLORS.get(m, "#333"))
+        ax.grid(axis="y", alpha=0.12, linestyle="--")
+        if idx == 0:
+            ax.set_ylabel("Score", fontsize=12)
+            ax.legend(fontsize=10, loc="upper left", framealpha=0.9)
+
+    fig4.suptitle(f"Relearning Attack Robustness\nTOFU {FORGET_SPLIT} | Phi-1.5",
+                  fontweight="bold", fontsize=15, y=1.04)
+    fig4.tight_layout()
+    fig4.savefig(FIG_DIR / f"relearning_comparison_{FORGET_SPLIT}.png")
+    plt.show()
+else:
+    print("No relearning data found for SimNPO / SimNPO_SAM")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  FIGURE 5 — Heatmap: All Methods × All Metrics
+#  FIGURE 5 — Relearning: Metric-by-Metric Comparison (SimNPO vs SimNPO_SAM)
 # ═══════════════════════════════════════════════════════════════════════════
-hm_metrics = ["forget_quality", "model_utility", "forget_Q_A_Prob", "forget_Q_A_ROUGE"]
-hm_labels  = ["Forget Quality", "Model Utility", "Forget QA Prob", "Forget QA ROUGE"]
+if len(available_rl_methods) == 2:
+    comp_metrics = ["forget_quality", "model_utility", "forget_Q_A_ROUGE", "extraction_strength"]
+    comp_labels  = ["Forget Quality", "Model Utility", "Forget QA ROUGE", "Extraction Strength"]
 
-data_matrix = []
-for m in methods:
-    row = [results[m]["standard"].get(met, 0) for met in hm_metrics]
-    data_matrix.append(row)
-data_matrix = np.array(data_matrix)
+    fig5, axes = plt.subplots(2, 2, figsize=(12, 9))
+    axes = axes.flatten()
+    c_map = {"SimNPO": ("#e9c46a", "#c9a43a"), "SimNPO_SAM": ("#f4a261", "#d48241")}
 
-fig5, ax = plt.subplots(figsize=(8, max(4, len(methods) * 0.7 + 1)))
-im = ax.imshow(data_matrix, cmap="YlGnBu", aspect="auto", vmin=0, vmax=1)
+    for ax, metric, label in zip(axes, comp_metrics, comp_labels):
+        x_pos = np.arange(2)  # [Before, After]
+        bar_w = 0.30
 
-ax.set_xticks(range(len(hm_labels)))
-ax.set_xticklabels(hm_labels, fontsize=11, rotation=25, ha="right")
-ax.set_yticks(range(len(methods)))
-ax.set_yticklabels(methods, fontsize=11, fontweight="medium")
+        for i, m in enumerate(available_rl_methods):
+            bdata = relearn_data[m]["before"]
+            adata = relearn_data[m]["after"]
+            vals = [bdata.get(metric, 0), adata.get(metric, 0)]
+            c1, c2 = c_map[m]
+            offset = (i - 0.5) * bar_w
+            bars = ax.bar(x_pos + offset, vals, bar_w, color=COLORS[m],
+                          edgecolor="white", linewidth=0.8, label=m)
+            for bar in bars:
+                h = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width() / 2, h + 0.015,
+                        f"{h:.3f}", ha="center", fontsize=9, fontweight="medium")
 
-# Annotate cells
-for i in range(len(methods)):
-    for j in range(len(hm_metrics)):
-        val = data_matrix[i, j]
-        text_color = "white" if val > 0.6 else "#333"
-        ax.text(j, i, f"{val:.3f}", ha="center", va="center",
-                fontsize=10, fontweight="medium", color=text_color)
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(["Before\nRelearning", "After\nRelearning"], fontsize=10)
+        ax.set_ylim(0, 1.12)
+        ax.set_title(label, fontweight="bold", fontsize=13)
+        ax.grid(axis="y", alpha=0.12, linestyle="--")
+        ax.legend(fontsize=9, loc="upper left")
 
-cbar = fig5.colorbar(im, ax=ax, shrink=0.8)
-cbar.set_label("Score", fontsize=11)
-ax.set_title(f"Method × Metric Heatmap — TOFU {FORGET_SPLIT} (Phi‑1.5)",
-             fontweight="bold", pad=12)
-fig5.tight_layout()
-fig5.savefig(FIG_DIR / f"heatmap_{FORGET_SPLIT}.png")
-plt.show()
+    fig5.suptitle(f"SimNPO vs SimNPO+SAM: Relearning Robustness\nTOFU {FORGET_SPLIT} | Phi-1.5",
+                  fontweight="bold", fontsize=15, y=1.02)
+    fig5.tight_layout()
+    fig5.savefig(FIG_DIR / f"relearning_detail_{FORGET_SPLIT}.png")
+    plt.show()
+elif available_rl_methods:
+    print("Only 1 method has relearning data, skipping comparison grid")
 
-print(f"\n✓ All figures saved to {FIG_DIR}/")
+
+print(f"\nAll figures saved to {FIG_DIR}/")
